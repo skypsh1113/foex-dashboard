@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -664,6 +665,8 @@
     var regularCount = {}, specialCount = {}, ctiCount = {};
     EMPLOYEES.forEach(function(e){ regularCount[e]=0; specialCount[e]=0; ctiCount[e]=0; });
 
+    var ctiByDateCol = {}; // key: "YYYY-MM-DD|colIdx" -> [person, person, ...] (같은 날 같은 열에 오전/오후로 나눠 배정된 사람들)
+
     var currentDate = null;
     for(var r = headerIdx+1; r < rows.length; r++){
       var row = rows[r];
@@ -684,13 +687,34 @@
       });
 
       ctiCols.forEach(function(idx){
-        var person = (row[idx] || "").trim();
-        if(EMPLOYEES.indexOf(person) === -1) return;
-        ctiCount[person] += 1;
+        var person = (row[idx] || "").replace(/[\u200B]/g,"").trim();
+        if(person.length === 0) return;
+        var key = currentDate + "|" + idx;
+        (ctiByDateCol[key] || (ctiByDateCol[key] = [])).push(person);
       });
     }
 
+    // 같은 날짜 + 같은 열(UC/ERP1/ERP2/물류)에 오전·오후로 나눠 여러 명이 채워져 있으면,
+    // 그 인원수만큼 1을 나눠서 각자에게 배분한다 (예: 2명이면 각 0.5).
+    Object.keys(ctiByDateCol).forEach(function(key){
+      var people = ctiByDateCol[key];
+      var weight = 1 / people.length;
+      people.forEach(function(person){
+        if(EMPLOYEES.indexOf(person) === -1) return;
+        ctiCount[person] += weight;
+      });
+    });
+
     return {regular: regularCount, special: specialCount, cti: ctiCount};
+  }
+
+  function roundCount(n){
+    // 0.5 단위 등 소수 집계 결과를 보기 좋게 반올림 (부동소수점 오차 제거)
+    return Math.round(n * 100) / 100;
+  }
+  function fmtCount(n){
+    var r = roundCount(n);
+    return (Math.round(r*10) % 10 === 0) ? String(Math.round(r)) : r.toFixed(1);
   }
 
   // ---------- 3.5 Google 로그인(OAuth) ----------
@@ -842,8 +866,8 @@
               '<span class="fg-total">' + foexTotal + '회</span>' +
             '</div>' +
           '</div>' +
-          '<div class="num-col cti">' + c + '<span class="unit">회</span></div>' +
-          '<div class="num-col total">' + total + '<span class="unit">회</span></div>';
+          '<div class="num-col cti">' + fmtCount(c) + '<span class="unit">회</span></div>' +
+          '<div class="num-col total">' + fmtCount(total) + '<span class="unit">회</span></div>';
         boardBody.appendChild(row);
       });
     }
@@ -853,7 +877,7 @@
     var totalCti = shown.reduce(function(s,e){return s+data.cti[e];},0);
     sumRegularEl.innerHTML = totalRegular + "<span>회</span>";
     sumSpecialEl.innerHTML = totalSpecial + "<span>회</span>";
-    sumCtiEl.innerHTML = totalCti + "<span>회</span>";
+    sumCtiEl.innerHTML = fmtCount(totalCti) + "<span>회</span>";
   }
 
   function renderError(message){
